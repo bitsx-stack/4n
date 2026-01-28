@@ -1,0 +1,12 @@
+{
+    key: 'actions',
+    label: 'Actions',
+    render: (_value:any, row: User) => (
+      <DataTableActions 
+        row={row}
+        onView={(r) => console.log("View", r.name)}
+        onEdit={(r) => console.log("Edit", r.name)}
+        onDelete={(r) => console.log("Delete", r.name)}
+       />
+    ),
+  },

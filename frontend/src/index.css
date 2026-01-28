@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom utility classes */
+@layer components {
+  .tw-btn-primary {
+    @apply tw-bg-primary tw-text-white tw-px-4 tw-py-2 tw-rounded-lg hover:tw-bg-primary-dark tw-transition-colors tw-font-semibold;
+  }
+  
+  .tw-btn-secondary {
+    @apply tw-bg-secondary tw-text-white tw-px-4 tw-py-2 tw-rounded-lg hover:tw-bg-secondary-dark tw-transition-colors tw-font-semibold;
+  }
+  
+  .tw-btn-danger {
+    @apply tw-bg-danger tw-text-white tw-px-4 tw-py-2 tw-rounded-lg hover:tw-bg-danger-dark tw-transition-colors tw-font-semibold;
+  }
+}
