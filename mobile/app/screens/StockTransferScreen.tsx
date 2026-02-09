@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,621 +15,491 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 
-import SelectionModal, { NamedItem } from "./SelectionModal";
-import { categoryApi, categoryTypeApi, storesApi } from "@/util/api";
+import { imeiApi, stockRequestApi } from "@/util/api";
+import LogoutButton from "@/components/LogoutButton";
 
-type RouteParams = {
-  storeId?: number;
-  storeName?: string;
-  companyId?: number;
+/* ─── types ────────────────────────────────────────────────────────── */
+type RouteParams = { storeId?: number; storeName?: string; companyId?: number };
+
+type StockRequestItem = {
+  id: number;
+  source_store_id: number;
+  source_store_name: string;
+  destination_store_id: number;
+  destination_store_name: string;
+  brand: string;
+  model: string;
+  storage: string;
+  requested_quantity: number;
+  available_stock: number;
+  moved_quantity: number;
+  status: string;
+  notes: string;
+  requested_imeis: string[];
+  transferred_imeis: string[];
+  received_imeis: string[];
+  created_at: string;
+  updated_at: string;
 };
 
-type StoreItem = NamedItem;
-type BrandItem = NamedItem;
-type ModelItem = NamedItem & { categorytype_id: number };
-
-type RequestLine = {
-  id: string;
-  toStore: StoreItem;
-  brand: BrandItem;
-  model: ModelItem;
-  quantity: number;
-  scannedImeis: string[];
-};
-
+/* ─── component ────────────────────────────────────────────────────── */
 export default function StockTransferScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { storeId, storeName, companyId } = (route.params ?? {}) as RouteParams;
+  const { storeId, storeName } = (route.params ?? {}) as RouteParams;
 
-  const [stores, setStores] = useState<StoreItem[]>([]);
-  const [loadingStores, setLoadingStores] = useState<boolean>(false);
+  /* pending requests where THIS store is the source (warehouse) */
+  const [requests, setRequests] = useState<StockRequestItem[]>([]);
+  const [loadingReqs, setLoadingReqs] = useState(false);
 
-  const [brands, setBrands] = useState<BrandItem[]>([]);
-  const [models, setModels] = useState<ModelItem[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState<boolean>(false);
+  /* the request currently being fulfilled */
+  const [activeReq, setActiveReq] = useState<StockRequestItem | null>(null);
 
-  const [lines, setLines] = useState<RequestLine[]>([]);
-  const [activeLineId, setActiveLineId] = useState<string | null>(null);
+  /* editable transfer quantity (≤ requested_quantity) */
+  const [transferQty, setTransferQty] = useState("");
 
-  // Draft request line
-  const [showStoreModal, setShowStoreModal] = useState<boolean>(false);
-  const [storeSearch, setStoreSearch] = useState<string>("");
-  const [draftToStore, setDraftToStore] = useState<StoreItem | null>(null);
+  /* scanned IMEIs for the active transfer */
+  const [scannedImeis, setScannedImeis] = useState<string[]>([]);
 
-  const [showBrandModal, setShowBrandModal] = useState<boolean>(false);
-  const [brandSearch, setBrandSearch] = useState<string>("");
-  const [draftBrand, setDraftBrand] = useState<BrandItem | null>(null);
-
-  const [showModelModal, setShowModelModal] = useState<boolean>(false);
-  const [modelSearch, setModelSearch] = useState<string>("");
-  const [draftModel, setDraftModel] = useState<ModelItem | null>(null);
-
-  const [draftQuantity, setDraftQuantity] = useState<string>("1");
-
-  // Scanner + manual entry
+  /* scanner state */
   const [permission, requestPermission] = useCameraPermissions();
-  const [showScanner, setShowScanner] = useState<boolean>(false);
-  const [scanned, setScanned] = useState<boolean>(false);
-  const [manualImei, setManualImei] = useState<string>("");
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [manualImei, setManualImei] = useState("");
 
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleBack = () => navigation.goBack();
-
-  const loadStores = async () => {
-    if (!companyId) return;
-    setLoadingStores(true);
+  /* ─── load pending requests ───────────────────────────────────── */
+  const loadRequests = useCallback(async () => {
+    if (!storeId) return;
+    setLoadingReqs(true);
     try {
-      const res = await storesApi.getStoresByCompany(companyId);
-      const list: any[] = res.data ?? [];
-      const mapped: StoreItem[] = list
-        .map((s) => ({ id: Number(s.id), name: String(s.name) }))
-        .filter((s) => Number.isFinite(s.id) && s.name);
-
-      setStores(mapped.filter((s) => s.id !== storeId));
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to load stores");
-    } finally {
-      setLoadingStores(false);
-    }
-  };
-
-  const loadCatalog = async () => {
-    setLoadingCatalog(true);
-    try {
-      const [brandList, modelList] = await Promise.all([
-        categoryTypeApi.listAll(),
-        categoryApi.listAll(),
-      ]);
-
-      setBrands(
-        (brandList ?? [])
-          .map((b: any) => ({ id: Number(b.id), name: String(b.name) }))
-          .filter((b) => Number.isFinite(b.id) && b.name),
+      const res = await stockRequestApi.getByStore(storeId);
+      const items: StockRequestItem[] = res.data?.data ?? res.data ?? [];
+      // Show only pending requests where this store is the SOURCE
+      setRequests(
+        items.filter(
+          (r) => r.source_store_id === storeId && r.status === "pending",
+        ),
       );
-
-      setModels(
-        (modelList ?? [])
-          .map((m: any) => ({
-            id: Number(m.id),
-            name: String(m.name),
-            categorytype_id: Number(m.categorytype_id),
-          }))
-          .filter(
-            (m) =>
-              Number.isFinite(m.id) &&
-              m.name &&
-              Number.isFinite(m.categorytype_id),
-          ),
-      );
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to load brands/models");
+    } catch (e) {
+      console.error("Failed to load requests:", e);
     } finally {
-      setLoadingCatalog(false);
+      setLoadingReqs(false);
     }
-  };
+  }, [storeId]);
 
   useEffect(() => {
-    loadStores();
-    loadCatalog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, storeId]);
+    loadRequests();
+  }, [loadRequests]);
 
-  useEffect(() => {
-    setDraftModel(null);
-    setModelSearch("");
-  }, [draftBrand?.id]);
+  /* ─── select a request to fulfil ─────────────────────────────── */
+  const selectRequest = (req: StockRequestItem) => {
+    setActiveReq(req);
+    setTransferQty(String(req.requested_quantity));
+    setScannedImeis([]);
+    setManualImei("");
+  };
 
-  const filteredStores = useMemo(() => {
-    const q = storeSearch.trim().toLowerCase();
-    if (!q) return stores;
-    return stores.filter((s) => s.name.toLowerCase().includes(q));
-  }, [storeSearch, stores]);
+  const clearSelection = () => {
+    setActiveReq(null);
+    setTransferQty("");
+    setScannedImeis([]);
+    setManualImei("");
+  };
 
-  const filteredBrands = useMemo(() => {
-    const q = brandSearch.trim().toLowerCase();
-    if (!q) return brands;
-    return brands.filter((b) => b.name.toLowerCase().includes(q));
-  }, [brandSearch, brands]);
+  /* ─── quantity guard ──────────────────────────────────────────── */
+  const maxQty = activeReq?.requested_quantity ?? 0;
+  const parsedQty = Number(transferQty) || 0;
 
-  const filteredModels = useMemo(() => {
-    const q = modelSearch.trim().toLowerCase();
-    const byBrand = draftBrand
-      ? models.filter((m) => m.categorytype_id === draftBrand.id)
-      : [];
-    if (!q) return byBrand;
-    return byBrand.filter((m) => m.name.toLowerCase().includes(q));
-  }, [modelSearch, models, draftBrand]);
-
-  const addRequestLine = () => {
-    if (!draftToStore || !draftBrand || !draftModel) {
-      Alert.alert("Missing info", "Select store, brand and model.");
+  const handleQtyChange = (val: string) => {
+    const n = Number(val);
+    if (val === "") {
+      setTransferQty("");
       return;
     }
-    const qty = Number(draftQuantity);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      Alert.alert("Invalid quantity", "Enter a valid quantity.");
+    if (!Number.isFinite(n) || n < 0) return;
+    if (n > maxQty) {
+      Alert.alert("Limit", `Cannot exceed requested quantity (${maxQty}).`);
       return;
     }
-
-    const newLine: RequestLine = {
-      id: String(Date.now()),
-      toStore: draftToStore,
-      brand: draftBrand,
-      model: draftModel,
-      quantity: qty,
-      scannedImeis: [],
-    };
-
-    setLines((prev) => [newLine, ...prev]);
-    setActiveLineId(newLine.id);
-    setDraftBrand(null);
-    setDraftModel(null);
-    setDraftQuantity("1");
+    setTransferQty(val);
   };
 
-  const updateLineQuantity = (lineId: string, value: string) => {
-    const nextQty = Number(value);
-    setLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        const qty = Number.isFinite(nextQty) && nextQty > 0 ? nextQty : 0;
-        const trimmed = qty > 0 ? l.scannedImeis.slice(0, qty) : [];
-        return { ...l, quantity: qty, scannedImeis: trimmed };
-      }),
-    );
-  };
-
-  const removeLine = (lineId: string) => {
-    setLines((prev) => prev.filter((l) => l.id !== lineId));
-    if (activeLineId === lineId) setActiveLineId(null);
-  };
-
-  const addImeiToActiveLine = (raw: string) => {
+  /* ─── IMEI scanning ──────────────────────────────────────────── */
+  const addImei = async (raw: string) => {
     const code = raw.trim();
-    if (!code) {
-      Alert.alert("Missing IMEI", "Scan or enter an IMEI.");
-      return;
-    }
-    if (!activeLineId) {
-      Alert.alert("Select request", "Tap a request line first.");
+    if (!code || !activeReq) return;
+
+    // Already scanned?
+    if (scannedImeis.includes(code)) {
+      Alert.alert("Duplicate", "This IMEI is already scanned.");
       return;
     }
 
-    setLines((prev) => {
-      const active = prev.find((l) => l.id === activeLineId);
-      if (!active) return prev;
-      if (active.scannedImeis.includes(code)) {
-        Alert.alert(
-          "Duplicate",
-          "This IMEI is already scanned for this request.",
-        );
-        return prev;
-      }
-      if (
-        active.quantity > 0 &&
-        active.scannedImeis.length >= active.quantity
-      ) {
-        Alert.alert(
-          "Quantity reached",
-          "Scanned count already matches the requested quantity.",
-        );
-        return prev;
-      }
-      return prev.map((l) =>
-        l.id === activeLineId
-          ? { ...l, scannedImeis: [code, ...l.scannedImeis] }
-          : l,
+    // Reached quantity?
+    if (parsedQty > 0 && scannedImeis.length >= parsedQty) {
+      Alert.alert(
+        "Limit",
+        "Scanned count already matches the transfer quantity.",
       );
-    });
+      return;
+    }
+
+    // Validate against DB: IMEI must exist in this source store
+    try {
+      const res = await imeiApi.getByCode(code);
+      const imei = res.data?.data ?? res.data;
+      if (!imei || !imei.code) {
+        Alert.alert("Not found", `IMEI ${code} not found in database.`);
+        return;
+      }
+      // Check brand / model match
+      if (imei.brand?.toLowerCase() !== activeReq.brand.toLowerCase()) {
+        Alert.alert(
+          "Brand mismatch",
+          `IMEI brand "${imei.brand}" does not match "${activeReq.brand}".`,
+        );
+        return;
+      }
+      if (imei.model?.toLowerCase() !== activeReq.model.toLowerCase()) {
+        Alert.alert(
+          "Model mismatch",
+          `IMEI model "${imei.model}" does not match "${activeReq.model}".`,
+        );
+        return;
+      }
+    } catch {
+      Alert.alert("Error", `Could not verify IMEI ${code} in database.`);
+      return;
+    }
+
+    setScannedImeis((prev) => [...prev, code]);
   };
 
-  const removeImeiFromLine = (lineId: string, imei: string) => {
-    setLines((prev) =>
-      prev.map((l) =>
-        l.id === lineId
-          ? { ...l, scannedImeis: l.scannedImeis.filter((x) => x !== imei) }
-          : l,
-      ),
-    );
-  };
+  const removeImei = (code: string) =>
+    setScannedImeis((prev) => prev.filter((c) => c !== code));
 
-  const handleBarcodeScanned = ({ data }: { data: string }) => {
+  const handleBarcode = ({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
-
-    addImeiToActiveLine(data);
-
+    addImei(data);
     setTimeout(() => setScanned(false), 700);
   };
 
-  const handleOpenScanner = async () => {
-    if (!activeLineId) {
-      Alert.alert("Select request", "Tap a request line first.");
+  const openScanner = async () => {
+    if (!activeReq) {
+      Alert.alert("Select request", "Select a stock request first.");
       return;
     }
     if (!permission?.granted) {
       const res = await requestPermission();
       if (!res.granted) {
-        Alert.alert("Permission", "Camera permission is required to scan.");
+        Alert.alert("Permission", "Camera permission is required.");
         return;
       }
     }
     setShowScanner(true);
   };
 
+  /* ─── submit transfer ─────────────────────────────────────────── */
   const canSubmit = useMemo(() => {
-    if (!storeId) return false;
-    if (lines.length === 0) return false;
-    return lines.every(
-      (l) => l.quantity > 0 && l.scannedImeis.length === l.quantity,
-    );
-  }, [storeId, lines]);
+    if (!activeReq) return false;
+    if (scannedImeis.length === 0) return false;
+    if (parsedQty <= 0) return false;
+    return scannedImeis.length === parsedQty;
+  }, [activeReq, scannedImeis, parsedQty]);
 
   const handleSubmit = async () => {
-    if (!canSubmit) {
-      Alert.alert(
-        "Not ready",
-        "Each request line must have scanned IMEIs equal to quantity.",
-      );
-      return;
-    }
-
+    if (!canSubmit || !activeReq) return;
     try {
       setIsSubmitting(true);
-      // Design-only: backend wiring can be added once stock-request + transfer endpoints are confirmed.
-      const total = lines.reduce((sum, l) => sum + l.scannedImeis.length, 0);
+      await stockRequestApi.executeTransfer(activeReq.id, {
+        transferred_imeis: scannedImeis,
+        quantity: parsedQty,
+      });
       Alert.alert(
-        "Transfer prepared",
-        `From: ${storeName ?? storeId}\nRequests: ${lines.length}\nIMEIs: ${total}`,
+        "Transfer Complete",
+        `${scannedImeis.length} IMEI(s) transferred to ${activeReq.destination_store_name}.\nThe destination store can now receive them.`,
       );
-      setLines([]);
-      setActiveLineId(null);
+      clearSelection();
+      await loadRequests();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Transfer failed";
+      Alert.alert("Error", msg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const activeLine = useMemo(() => {
-    if (!activeLineId) return null;
-    return lines.find((l) => l.id === activeLineId) ?? null;
-  }, [activeLineId, lines]);
+  /* ─── helpers ─────────────────────────────────────────────────── */
+  const handleBack = () => navigation.goBack();
 
+  const getStatusColor = (s: string) => {
+    switch (s) {
+      case "pending":
+        return "#fff3cd";
+      case "transferred":
+        return "#cce5ff";
+      case "completed":
+        return "#d4edda";
+      default:
+        return "#e0e0e0";
+    }
+  };
+
+  /* ─── render ──────────────────────────────────────────────────── */
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+    <View style={s.container}>
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={handleBack} style={s.backBtn}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerContent}>
-          <Text style={styles.title}>Stock Transfer</Text>
-          {storeName ? <Text style={styles.subtitle}>{storeName}</Text> : null}
+        <View style={{ flex: 1 }}>
+          <Text style={s.title}>Stock Transfer</Text>
+          {storeName ? <Text style={s.subtitle}>{storeName}</Text> : null}
         </View>
+        <LogoutButton />
       </View>
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-      >
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Stock Request</Text>
-
-          <Text style={styles.label}>Requested Store</Text>
-          <TouchableOpacity
-            style={styles.selectButton}
-            onPress={() => setShowStoreModal(true)}
-            disabled={loadingStores || !companyId}
-          >
-            <Text style={styles.selectButtonText}>
-              {draftToStore?.name ??
-                (loadingStores
-                  ? "Loading stores..."
-                  : "Select requested store")}
-            </Text>
-            {loadingStores ? (
-              <ActivityIndicator size="small" color="#007AFF" />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color="#999" />
+      <ScrollView style={s.content} contentContainerStyle={s.contentInner}>
+        {/* ── Pending requests card ── */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>
+            Pending Requests{" "}
+            {requests.length > 0 && (
+              <Text style={{ color: "#007AFF" }}>({requests.length})</Text>
             )}
-          </TouchableOpacity>
-
-          <Text style={styles.label}>Brand</Text>
-          <TouchableOpacity
-            style={styles.selectButton}
-            onPress={() => setShowBrandModal(true)}
-            disabled={loadingCatalog}
-          >
-            <Text style={styles.selectButtonText}>
-              {draftBrand?.name ??
-                (loadingCatalog ? "Loading..." : "Select brand")}
-            </Text>
-            {loadingCatalog ? (
-              <ActivityIndicator size="small" color="#007AFF" />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            )}
-          </TouchableOpacity>
-
-          <Text style={styles.label}>Model</Text>
-          <TouchableOpacity
-            style={styles.selectButton}
-            onPress={() => {
-              if (!draftBrand) {
-                Alert.alert("Info", "Select brand first.");
-                return;
-              }
-              setShowModelModal(true);
-            }}
-            disabled={loadingCatalog || !draftBrand}
-          >
-            <Text style={styles.selectButtonText}>
-              {draftModel?.name ??
-                (draftBrand
-                  ? loadingCatalog
-                    ? "Loading..."
-                    : "Select model"
-                  : "Select brand first")}
-            </Text>
-            {loadingCatalog ? (
-              <ActivityIndicator size="small" color="#007AFF" />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            )}
-          </TouchableOpacity>
-
-          <Text style={styles.label}>Quantity</Text>
-          <TextInput
-            value={draftQuantity}
-            onChangeText={setDraftQuantity}
-            placeholder="1"
-            placeholderTextColor="#999"
-            keyboardType="numeric"
-            style={styles.input}
-          />
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={addRequestLine}
-          >
-            <Ionicons name="add-circle-outline" size={18} color="#1565c0" />
-            <Text style={styles.secondaryButtonText}>Add Request Line</Text>
-          </TouchableOpacity>
-
-          {!companyId ? (
-            <View style={styles.notice}>
-              <Text style={styles.noticeText}>
-                Missing companyId. Navigate from Actions to preserve params.
-              </Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Request Lines</Text>
-          {lines.length === 0 ? (
-            <Text style={styles.helperText}>No request lines yet.</Text>
-          ) : (
-            <View style={{ marginTop: 6 }}>
-              {lines.map((l) => {
-                const isActive = l.id === activeLineId;
-                const fulfilled =
-                  l.quantity > 0 && l.scannedImeis.length === l.quantity;
-                return (
-                  <TouchableOpacity
-                    key={l.id}
-                    style={[
-                      styles.lineRow,
-                      isActive && styles.lineRowActive,
-                      fulfilled && styles.lineRowFulfilled,
-                    ]}
-                    onPress={() => setActiveLineId(l.id)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.lineTitle}>
-                        {l.toStore.name} • {l.brand.name} • {l.model.name}
-                      </Text>
-                      <Text style={styles.lineMeta}>
-                        Scanned: {l.scannedImeis.length}/{l.quantity}
-                      </Text>
-                    </View>
-                    <View style={styles.lineQtyBox}>
-                      <TextInput
-                        value={String(l.quantity || "")}
-                        onChangeText={(v) => updateLineQuantity(l.id, v)}
-                        keyboardType="numeric"
-                        style={styles.lineQtyInput}
-                      />
-                      <Text style={styles.lineQtyLabel}>Qty</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => removeLine(l.id)}
-                      style={styles.iconButton}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={20}
-                        color="#FF3B30"
-                      />
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Scan IMEIs to Transfer</Text>
-
-          <View style={styles.kvRow}>
-            <Text style={styles.kvKey}>Active Request</Text>
-            <Text style={styles.kvValue}>
-              {activeLine
-                ? `${activeLine.toStore.name} • ${activeLine.model.name}`
-                : "(tap a request line)"}
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.primaryActionButton}
-            onPress={handleOpenScanner}
-            disabled={!activeLineId}
-          >
-            <Ionicons name="barcode-outline" size={18} color="#fff" />
-            <Text style={styles.primaryActionText}>Scan IMEI</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.label}>Manual IMEI (optional)</Text>
-          <View style={styles.manualRow}>
-            <TextInput
-              value={manualImei}
-              onChangeText={setManualImei}
-              placeholder="Enter IMEI"
-              placeholderTextColor="#999"
-              autoCapitalize="characters"
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
-            />
-            <TouchableOpacity
-              style={styles.manualAddButton}
-              onPress={() => {
-                addImeiToActiveLine(manualImei);
-                setManualImei("");
-              }}
-              disabled={!activeLineId}
-            >
-              <Ionicons name="add" size={20} color="#1565c0" />
-            </TouchableOpacity>
-          </View>
-
-          {!activeLine ? (
-            <Text style={styles.helperText}>
-              Select a request line to start scanning.
-            </Text>
-          ) : activeLine.scannedImeis.length === 0 ? (
-            <Text style={styles.helperText}>
-              No IMEIs scanned for this line.
-            </Text>
-          ) : (
-            <View style={{ marginTop: 12 }}>
-              {activeLine.scannedImeis.map((code) => (
-                <View key={code} style={styles.listRow}>
-                  <Text style={styles.listPrimary}>{code}</Text>
-                  <TouchableOpacity
-                    onPress={() => removeImeiFromLine(activeLine.id, code)}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#FF3B30" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            (!canSubmit || isSubmitting) && styles.primaryButtonDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={!canSubmit || isSubmitting}
-        >
-          <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>
-            {isSubmitting ? "Submitting..." : "Submit Transfer"}
           </Text>
-        </TouchableOpacity>
+
+          {loadingReqs ? (
+            <ActivityIndicator size="small" color="#007AFF" />
+          ) : requests.length === 0 ? (
+            <Text style={s.helper}>
+              No pending stock requests for this store.
+            </Text>
+          ) : (
+            requests.map((req) => {
+              const isActive = activeReq?.id === req.id;
+              return (
+                <TouchableOpacity
+                  key={req.id}
+                  style={[
+                    s.reqRow,
+                    isActive && { borderColor: "#2196F3", borderWidth: 2 },
+                  ]}
+                  onPress={() => selectRequest(req)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={s.reqTitle}>
+                        {req.brand} {req.model}
+                      </Text>
+                      <View
+                        style={[
+                          s.statusBadge,
+                          { backgroundColor: getStatusColor(req.status) },
+                        ]}
+                      >
+                        <Text style={s.statusText}>{req.status}</Text>
+                      </View>
+                    </View>
+                    <Text style={s.reqMeta}>
+                      {req.storage} • Qty: {req.requested_quantity}
+                    </Text>
+                    <Text style={[s.reqMeta, { color: "#999", fontSize: 11 }]}>
+                      To: {req.destination_store_name}
+                    </Text>
+                    <Text style={[s.reqMeta, { color: "#bbb", fontSize: 10 }]}>
+                      {new Date(req.created_at).toLocaleDateString()}{" "}
+                      {new Date(req.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                    {req.notes ? (
+                      <Text style={[s.reqMeta, { fontStyle: "italic" }]}>
+                        Note: {req.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Ionicons
+                    name={isActive ? "radio-button-on" : "radio-button-off"}
+                    size={22}
+                    color={isActive ? "#2196F3" : "#ccc"}
+                  />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        {/* ── Transfer form (visible when a request is selected) ── */}
+        {activeReq && (
+          <>
+            <View style={s.card}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={s.cardTitle}>Transfer Details</Text>
+                <TouchableOpacity onPress={clearSelection}>
+                  <Ionicons name="close-circle" size={22} color="#999" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>From</Text>
+                <Text style={s.kvVal}>
+                  {storeName ?? activeReq.source_store_name}
+                </Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>To</Text>
+                <Text style={s.kvVal}>{activeReq.destination_store_name}</Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>Brand</Text>
+                <Text style={s.kvVal}>{activeReq.brand}</Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>Model</Text>
+                <Text style={s.kvVal}>{activeReq.model}</Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>Storage</Text>
+                <Text style={s.kvVal}>{activeReq.storage}</Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>Requested</Text>
+                <Text style={s.kvVal}>{activeReq.requested_quantity}</Text>
+              </View>
+              <View style={s.kvRow}>
+                <Text style={s.kvKey}>Available</Text>
+                <Text style={s.kvVal}>{activeReq.available_stock}</Text>
+              </View>
+
+              <Text style={s.label}>Transfer Quantity (max {maxQty})</Text>
+              <TextInput
+                value={transferQty}
+                onChangeText={handleQtyChange}
+                keyboardType="numeric"
+                style={s.input}
+                placeholder={`1 - ${maxQty}`}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            {/* ── Scan IMEIs ── */}
+            <View style={s.card}>
+              <Text style={s.cardTitle}>
+                Scan IMEIs ({scannedImeis.length}/{parsedQty || "?"})
+              </Text>
+
+              <TouchableOpacity style={s.primaryBtn} onPress={openScanner}>
+                <Ionicons name="barcode-outline" size={18} color="#fff" />
+                <Text style={s.primaryBtnText}>Scan IMEI</Text>
+              </TouchableOpacity>
+
+              <Text style={s.label}>Manual IMEI (optional)</Text>
+              <View style={s.manualRow}>
+                <TextInput
+                  value={manualImei}
+                  onChangeText={setManualImei}
+                  placeholder="Enter IMEI"
+                  placeholderTextColor="#999"
+                  autoCapitalize="characters"
+                  style={[s.input, { flex: 1, marginBottom: 0 }]}
+                />
+                <TouchableOpacity
+                  style={s.manualAdd}
+                  onPress={() => {
+                    addImei(manualImei);
+                    setManualImei("");
+                  }}
+                >
+                  <Ionicons name="add" size={20} color="#1565c0" />
+                </TouchableOpacity>
+              </View>
+
+              {scannedImeis.length === 0 ? (
+                <Text style={s.helper}>No IMEIs scanned yet.</Text>
+              ) : (
+                <View style={{ marginTop: 12 }}>
+                  {scannedImeis.map((code) => (
+                    <View key={code} style={s.imeiRow}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color="#4CAF50"
+                      />
+                      <Text style={s.imeiCode}>{code}</Text>
+                      <TouchableOpacity onPress={() => removeImei(code)}>
+                        <Ionicons
+                          name="close-circle"
+                          size={18}
+                          color="#f44336"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* ── Submit ── */}
+            <TouchableOpacity
+              style={[
+                s.submitBtn,
+                (!canSubmit || isSubmitting) && s.btnDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={!canSubmit || isSubmitting}
+            >
+              <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
+              <Text style={s.submitBtnText}>
+                {isSubmitting
+                  ? "Transferring..."
+                  : `Transfer ${scannedImeis.length} IMEI(s)`}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
 
-      <SelectionModal<StoreItem>
-        visible={showStoreModal}
-        title="Stores"
-        data={filteredStores}
-        loading={loadingStores}
-        searchValue={storeSearch}
-        onSearchChange={setStoreSearch}
-        selectedItem={draftToStore}
-        onSelect={(it) => {
-          setDraftToStore(it);
-          setShowStoreModal(false);
-        }}
-        onClose={() => setShowStoreModal(false)}
-      />
-
-      <SelectionModal<BrandItem>
-        visible={showBrandModal}
-        title="Brands"
-        data={filteredBrands}
-        loading={loadingCatalog}
-        searchValue={brandSearch}
-        onSearchChange={setBrandSearch}
-        selectedItem={draftBrand}
-        onSelect={(it) => {
-          setDraftBrand(it);
-          setShowBrandModal(false);
-        }}
-        onClose={() => setShowBrandModal(false)}
-      />
-
-      <SelectionModal<ModelItem>
-        visible={showModelModal}
-        title="Models"
-        data={filteredModels}
-        loading={loadingCatalog}
-        searchValue={modelSearch}
-        onSearchChange={setModelSearch}
-        selectedItem={draftModel}
-        onSelect={(it) => {
-          setDraftModel(it);
-          setShowModelModal(false);
-        }}
-        onClose={() => setShowModelModal(false)}
-      />
-
+      {/* ── Scanner modal ── */}
       <Modal visible={showScanner} animationType="slide">
-        <SafeAreaView style={styles.scannerContainer}>
-          <View style={styles.scannerHeader}>
-            <Text style={styles.scannerTitle}>Scan IMEI</Text>
+        <SafeAreaView style={s.scannerWrap}>
+          <View style={s.scannerHead}>
+            <Text style={s.scannerTitle}>Scan IMEI</Text>
             <TouchableOpacity onPress={() => setShowScanner(false)}>
-              <Text style={styles.scannerClose}>✕</Text>
+              <Text style={s.scannerClose}>✕</Text>
             </TouchableOpacity>
           </View>
           <CameraView
-            style={styles.camera}
+            style={s.camera}
             barcodeScannerSettings={{
               barcodeTypes: ["code128", "code39", "ean13", "ean8", "qr"],
             }}
-            onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+            onBarcodeScanned={scanned ? undefined : handleBarcode}
           />
-          <View style={styles.scannerFooter}>
-            <Text style={styles.scannerHint}>
-              Point camera at barcode to scan
-            </Text>
+          <View style={s.scannerFoot}>
+            <Text style={s.scannerHint}>Point camera at barcode</Text>
             <TouchableOpacity
-              style={styles.doneBtn}
+              style={s.doneBtn}
               onPress={() => setShowScanner(false)}
             >
-              <Text style={styles.doneBtnText}>Done Scanning</Text>
+              <Text style={s.doneBtnText}>Done Scanning</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -638,7 +508,8 @@ export default function StockTransferScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+/* ─── styles ──────────────────────────────────────────────────────── */
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: {
     backgroundColor: "#007AFF",
@@ -648,14 +519,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  backButton: { marginRight: 15, padding: 5 },
-  headerContent: { flex: 1 },
-  title: { fontSize: 28, fontWeight: "bold", color: "#ffffff" },
-  subtitle: { fontSize: 16, color: "#ffffff", opacity: 0.85, marginTop: 5 },
+  backBtn: { marginRight: 15, padding: 5 },
+  title: { fontSize: 28, fontWeight: "bold", color: "#fff" },
+  subtitle: { fontSize: 16, color: "#fff", opacity: 0.85, marginTop: 5 },
   content: { flex: 1 },
-  contentContainer: { padding: 16, paddingBottom: 28 },
+  contentInner: { padding: 16, paddingBottom: 28 },
   card: {
-    backgroundColor: "#ffffff",
+    backgroundColor: "#fff",
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
@@ -671,7 +541,14 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 12,
   },
-  label: { fontSize: 13, fontWeight: "600", color: "#555", marginBottom: 8 },
+  helper: { marginTop: 8, color: "#666" },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#555",
+    marginBottom: 8,
+    marginTop: 4,
+  },
   input: {
     backgroundColor: "#f0f0f0",
     paddingVertical: 12,
@@ -681,40 +558,16 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 12,
   },
-  selectButton: {
-    backgroundColor: "#f0f0f0",
-    borderRadius: 10,
-    padding: 12,
+  kvRow: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  selectButtonText: { fontSize: 16, color: "#333", flex: 1, marginRight: 10 },
-  secondaryButton: {
-    marginTop: 6,
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#90caf9",
-    backgroundColor: "#e3f2fd",
-  },
-  secondaryButtonText: { color: "#1565c0", fontWeight: "700" },
-  helperText: { marginTop: 8, color: "#666" },
-  notice: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: "#fff3cd",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#ffeeba",
-  },
-  noticeText: { color: "#856404" },
-  lineRow: {
+  kvKey: { color: "#666", fontWeight: "600" },
+  kvVal: { color: "#111", fontWeight: "700" },
+
+  /* request rows */
+  reqRow: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fafafa",
@@ -724,38 +577,27 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
   },
-  lineRowActive: { borderColor: "#2196F3" },
-  lineRowFulfilled: { backgroundColor: "#ecfdf5", borderColor: "#10b981" },
-  lineTitle: { fontWeight: "800", color: "#111" },
-  lineMeta: { marginTop: 4, color: "#666" },
-  lineQtyBox: {
-    width: 66,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 10,
-  },
-  lineQtyInput: {
-    width: 60,
-    textAlign: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    fontWeight: "800",
-    color: "#111",
-  },
-  lineQtyLabel: { marginTop: 4, fontSize: 11, color: "#666" },
-  iconButton: { marginLeft: 10, padding: 6 },
-  kvRow: {
+  reqTitle: { fontWeight: "800", color: "#111" },
+  reqMeta: { marginTop: 4, color: "#666" },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  statusText: { fontSize: 10, fontWeight: "600", textTransform: "capitalize" },
+
+  /* imei rows */
+  imeiRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#fafafa",
+    borderWidth: 1,
+    borderColor: "#eee",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
   },
-  kvKey: { color: "#666", fontWeight: "700" },
-  kvValue: { color: "#111", fontWeight: "800" },
-  primaryActionButton: {
+  imeiCode: { flex: 1, fontFamily: "monospace", fontSize: 14, color: "#333" },
+
+  /* buttons */
+  primaryBtn: {
     backgroundColor: "#2196F3",
     borderRadius: 14,
     paddingVertical: 12,
@@ -764,16 +606,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     marginBottom: 12,
-    opacity: 1,
   },
-  primaryActionText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  submitBtn: {
+    backgroundColor: "#FF9800",
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  submitBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  btnDisabled: { opacity: 0.5 },
   manualRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginBottom: 6,
   },
-  manualAddButton: {
+  manualAdd: {
     width: 48,
     height: 48,
     borderRadius: 14,
@@ -783,34 +636,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  listRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#fafafa",
-    borderWidth: 1,
-    borderColor: "#eee",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-  },
-  listPrimary: { fontWeight: "800", color: "#111" },
-  submitButton: {
-    backgroundColor: "#2196F3",
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  primaryButtonDisabled: { opacity: 0.6 },
-  primaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
 
-  // scanner
-  scannerContainer: { flex: 1, backgroundColor: "#000" },
-  scannerHeader: {
+  /* scanner */
+  scannerWrap: { flex: 1, backgroundColor: "#000" },
+  scannerHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -820,10 +649,7 @@ const styles = StyleSheet.create({
   scannerTitle: { color: "#fff", fontSize: 18, fontWeight: "800" },
   scannerClose: { color: "#fff", fontSize: 18, fontWeight: "800" },
   camera: { flex: 1 },
-  scannerFooter: {
-    padding: 16,
-    backgroundColor: "#111",
-  },
+  scannerFoot: { padding: 16, backgroundColor: "#111" },
   scannerHint: { color: "#ddd", marginBottom: 12 },
   doneBtn: {
     backgroundColor: "#2196F3",

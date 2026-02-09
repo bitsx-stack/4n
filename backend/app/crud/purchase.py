@@ -55,7 +55,7 @@ class PurchaseCRUD:
         if not clean_codes:
             raise ValueError("No IMEI codes provided")
 
-        brand = CategoryTypeCRUD(self.db).get_by_id(brand_id)
+        brand = CategoryCRUD(self.db).get_by_id(brand_id)
         if not brand:
             raise ValueError("Brand not found")
 
@@ -124,7 +124,7 @@ class PurchaseCRUD:
         self.db.refresh(purchase)
         return purchase
 
-    def update_status(self, purchase_id: int, status: str) -> Purchase:
+    def  update_status(self, purchase_id: int, status: str) -> Purchase:
         purchase = self.get_by_id(purchase_id)
         if not purchase:
             raise ValueError("Purchase not found")

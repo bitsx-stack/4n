@@ -11,7 +11,8 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import API_BASE_URL, { stockApi, storeApi, storesApi }  from "@/util/api";
+import API_BASE_URL, { stockApi, storeApi, storesApi } from "@/util/api";
+import LogoutButton from "@/components/LogoutButton";
 
 interface Store {
   id: number;
@@ -34,7 +35,6 @@ const StoreSelectionScreen = () => {
     try {
       const response = await storesApi.getStoresByCompany(companyId);
 
-    
       setStores(response.data);
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to load stores");
@@ -87,13 +87,17 @@ const StoreSelectionScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.title}>Select Store</Text>
           <Text style={styles.subtitle}>Choose a store to continue</Text>
         </View>
+        <LogoutButton />
       </View>
 
       <FlatList

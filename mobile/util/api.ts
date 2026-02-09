@@ -45,26 +45,14 @@ api.interceptors.request.use(
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-    (response) => {
-        if (__DEV__) {
-            console.log('✅ API Response:', response.status, response.data);
-        }
-        return response;
-    },
+    (response) => response,
     async (error) => {
-        if (__DEV__) {
-            console.error('❌ API Error:', {
-                message: error.message,
-                status: error.response?.status,
-                data: error.response?.data,
-                url: error.config?.url,
-            });
-        }
         if (error.response?.status === 401) {
-            await AsyncStorage.removeItem('auth_token');
+            await AsyncStorage.multiRemove(['auth_token', 'auth_user']);
+            delete api.defaults.headers.common['Authorization'];
         }
         return Promise.reject(error);
-    }
+    },
 );
 
 export default api;
@@ -273,7 +261,7 @@ export const categoryApi = {
         return extractPaginatedData<Category>(res.data);
     },
 
-     listByTypeName: async (name: string) => {
+    listByTypeName: async (name: string) => {
         const res = await api.get(`/categories/typename/${name}`, {
             params: { page: 1, pageSize: 2000 },
         });
@@ -326,3 +314,76 @@ export interface User {
     phone: string;
     role: string;
 }
+
+// Stock Request endpoints
+export const stockRequestApi = {
+    getAll: (params?: { page?: number; pageSize?: number; status?: string }) =>
+        api.get('/stock-requests', { params }),
+    getByStore: (storeId: number) => api.get(`/stock-requests/store/${storeId}`),
+    getById: (id: number) => api.get(`/stock-requests/${id}`),
+    create: (data: {
+        source_store_id: number;
+        source_store_name: string;
+        destination_store_id: number;
+        destination_store_name: string;
+        brand: string;
+        model: string;
+        storage: string;
+        requested_quantity: number;
+        available_stock?: number;
+        notes?: string;
+        requested_imeis?: string[];
+    }) => api.post('/stock-requests', data),
+    updateStatus: (id: number, data: {
+        status: string;
+        moved_quantity?: number;
+        received_imeis?: string[];
+    }) => api.put(`/stock-requests/${id}/status`, data),
+    /** Warehouse scans IMEIs and marks request as "transferred" */
+    executeTransfer: (id: number, data: {
+        transferred_imeis: string[];
+        quantity?: number;
+    }) => api.post(`/stock-requests/${id}/transfer`, data),
+    /** Destination scans IMEIs, moves stock, marks as "completed" */
+    executeReceive: (id: number, data: {
+        received_imeis: string[];
+    }) => api.post(`/stock-requests/${id}/receive`, data),
+    /** Cancel a pending request */
+    cancel: (id: number) => api.put(`/stock-requests/${id}/cancel`),
+};
+
+// ── Sale endpoints ──────────────────────────────────────────────
+export const saleApi = {
+    getAll: (params?: { page?: number; pageSize?: number; status?: string; store_id?: number }) =>
+        api.get('/sales', { params }),
+    getById: (id: number) => api.get(`/sales/${id}`),
+    create: (data: {
+        store_id: number;
+        store_name?: string;
+        imei_code: string;
+        brand?: string;
+        model?: string;
+        storage?: string;
+        amount: number;
+        notes?: string;
+        customer_name: string;
+        customer_phone: string;
+        customer_secondary_phone?: string;
+        next_of_kin_name?: string;
+        next_of_kin_relationship?: string;
+        next_of_kin_phone?: string;
+        next_of_kin_secondary_phone?: string;
+        seller_id?: number;
+        seller_name?: string;
+    }) => api.post('/sales', data),
+    /** Upload a receipt image for a sale */
+    uploadReceipt: (saleId: number, file: { uri: string; name: string; type: string }) => {
+        const formData = new FormData();
+        formData.append('file', file as any);
+        return api.post(`/sales/${saleId}/receipt`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+    },
+    /** Cancel a sale */
+    cancel: (id: number) => api.put(`/sales/${id}/cancel`),
+};

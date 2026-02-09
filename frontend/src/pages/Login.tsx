@@ -63,7 +63,7 @@ export default function LoginPage() {
               />
             )}
 
-            <div className="tw-space-y-6">
+            <form className="tw-space-y-6">
               {/* Email Input */}
               <div>
                 <label className="tw-block tw-text-sm tw-font-medium tw-text-secondary tw-mb-2">
@@ -139,7 +139,7 @@ export default function LoginPage() {
                   Sign up
                 </Link>
               </p>
-            </div>
+            </form>
           </div>
         </div>
       </div>

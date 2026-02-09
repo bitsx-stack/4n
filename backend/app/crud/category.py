@@ -1,6 +1,6 @@
 from sqlmodel import Session, select, func
 
-from models.category import Category
+from models.category import Category, CategoryType
 
 
 
@@ -92,7 +92,9 @@ class CategoryCRUD:
         }
         
     def paginated_by_type_name(self, category_type_name: str, page: int = 1, pageSize: int = 10, search: str = None):
-        query = select(Category).join(Category.category_type).where(Category.category_type.has(name=category_type_name))
+        query = select(Category).join(CategoryType, Category.categorytype_id == CategoryType.id).where(
+            func.lower(CategoryType.name) == category_type_name.lower()
+        )
 
         # SEARCH FILTER
         if search:

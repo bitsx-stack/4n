@@ -11,6 +11,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import API_BASE_URL, { companiesApi } from "@/util/api";
+import LogoutButton from "@/components/LogoutButton";
 
 interface Company {
   id: number;
@@ -30,8 +31,6 @@ const CompanySelectionScreen = () => {
   const fetchCompanies = async () => {
     try {
       const response = await companiesApi.getAll();
-
-      
 
       setCompanies(response.data);
     } catch (error: any) {
@@ -77,8 +76,10 @@ const CompanySelectionScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Select Company</Text>
-        <Text style={styles.subtitle}>Choose a company to continue</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.title}>Select Company</Text>
+        </View>
+        <LogoutButton />
       </View>
 
       <FlatList
@@ -117,6 +118,13 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 30,
     paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerContent: {
+    flex: 1,
+    justifyContent: "center",
   },
   title: {
     fontSize: 28,

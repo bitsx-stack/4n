@@ -3,7 +3,6 @@ from sqlmodel import Session
 
 from core.database import get_db
 from crud.category import CategoryCRUD
-from crud.category_type import CategoryTypeCRUD
 from crud.client import ClientCRUD
 from crud.purchase import PurchaseCRUD
 from crud.vendor import VendorCRUD
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api/purchases", tags=["purchases"])
 
 def _to_read_purchase(db: Session, purchase) -> ReadPurchase:
     vendor = VendorCRUD(db).get_by_id(purchase.vendor_id)
-    brand = CategoryTypeCRUD(db).get_by_id(purchase.brand_id)
+    brand = CategoryCRUD(db).get_by_id(purchase.brand_id)
     model = CategoryCRUD(db).get_by_id(purchase.model_id)
     store = StoreCRUD(db).get_by_id(purchase.store_id)
 

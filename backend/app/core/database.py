@@ -1,6 +1,10 @@
 from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine
 
+# Import all models so SQLModel.metadata.create_all picks them up
+import models.stock_request  # noqa: F401
+import models.sale  # noqa: F401
+
 DATABASE_URL = "postgresql+psycopg2://postgres:secure_password@db:5432/miliki_db"
 
 engine = create_engine(DATABASE_URL, echo=True, pool_pre_ping=True)

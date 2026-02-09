@@ -2,6 +2,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 from models.imei import Imei
 from models.store import Store
+from models.links import StoreImeiLink
 
 
 
@@ -54,10 +55,13 @@ class ImeiCRUD:
         return imei
 
     def all_by_store_id(self, store_id: int):
-        store = self.db.exec(select(Store).where(Store.id == store_id)).first()
-        imeis = self.db.exec(select(Imei).where(Imei.stores.contains(store))).all()
-        
-        return imeis
+        stmt = (
+            select(Imei)
+            .join(StoreImeiLink, StoreImeiLink.imei_id == Imei.code)
+            .where(StoreImeiLink.store_id == store_id)
+            .options(selectinload(Imei.stores))
+        )
+        return self.db.exec(stmt).all()
     
     def all(self):
         stmt = select(Imei).options(selectinload(Imei.stores))

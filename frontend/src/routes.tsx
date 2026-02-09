@@ -20,17 +20,24 @@ import VendorsPage from "./pages/vendors";
 import SmsSettingsPage from "./pages/sms";
 import PurchasesPage from "./pages/purchases";
 import TransfersPage from "./pages/transfers";
-import PaymentsPage from "./pages/payments";
+import SalesPage from "./pages/sales";
+import CustomersPage from "./pages/customers";
 import PermissionsPage from "./pages/permissions";
 import StockTakingPage from "./pages/stock-taking";
+import MenuManagementPage from "./pages/settings/menus";
+import UserPermissionsPage from "./pages/users/permissions";
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/dashboard", element: <AdminDashboard /> },
-  { path: "/users/permissions", element: <PermissionsPage /> },
+  { path: "/users/permissions", element: <UserPermissionsPage /> },
+  { path: "/users/customers", element: <CustomersPage /> },
   { path: "/inventory/stock", element: <ImeiInventoryPage /> },
   { path: "/inventory/stock-taking", element: <StockTakingPage /> },
   { path: "/inventory/transfers", element: <TransfersPage /> },
+  { path: "/billing/sales", element: <SalesPage /> },
+
+
   { path: "/purchases/list", element: <PurchasesPage /> },
   { path: "/settings/types", element: <TypesPage /> },
   { path: "/settings/categories", element: <CategoriesPage /> },
@@ -38,6 +45,7 @@ const router = createBrowserRouter([
   { path: "/settings/stores", element: <StorePage /> },
   { path: "/settings/vendors", element: <VendorsPage /> },
   { path: "/settings/sms", element: <SmsSettingsPage /> },
+  { path: "/settings/menus", element: <MenuManagementPage /> },
   { path: "/forgot-password", element: <ForgotPasswordPage /> },
   { path: "/reset-password", element: <ResetPasswordPage /> },
   { path: "/test", element: <TestPage /> },

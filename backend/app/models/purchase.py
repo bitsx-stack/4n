@@ -15,7 +15,7 @@ class Purchase(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
 
     vendor_id: int = Field(foreign_key="vendor.id", index=True)
-    brand_id: int = Field(foreign_key="categorytype.id", index=True)
+    brand_id: int = Field(foreign_key="category.id", index=True)
     model_id: int = Field(foreign_key="category.id", index=True)
     store_id: int = Field(foreign_key="store.id", index=True)
 

@@ -32,6 +32,7 @@ import SelectionModal from "./SelectionModal";
 import StorageSelection from "./StorageSelection";
 import VendorSelection from "./VendorSelection";
 import { useAuthContext } from "@/context/AuthContext";
+import LogoutButton from "@/components/LogoutButton";
 
 type Vendor = NamedItem;
 type Brand = NamedItem;
@@ -106,7 +107,7 @@ const StockTakingScreen = () => {
     setLoadingBrands(true);
     try {
       const list = await categoryApi.listByType(16);
-      console.log('Fetched brands:', list);
+      console.log("Fetched brands:", list);
       setBrands(list.map((b: any) => ({ id: b.id, name: b.name })));
     } finally {
       setLoadingBrands(false);
@@ -118,13 +119,10 @@ const StockTakingScreen = () => {
     try {
       const list = await categoryApi.listByTypeName(name);
       setModels(
-        list
-        
-          .map((m: any) => ({
-            id: m.id,
-            name: m.name,
-           
-          })),
+        list.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+        })),
       );
     } finally {
       setLoadingModels(false);
@@ -337,20 +335,21 @@ const StockTakingScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backButton}
         >
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Stock Taking</Text>
+          <Text style={styles.title}>Stock Taking</Text>
           {storeName ? (
             <Text style={styles.headerSubtitle}>{storeName}</Text>
           ) : null}
         </View>
+        <LogoutButton />
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <VendorSelection
@@ -537,7 +536,7 @@ const StockTakingScreen = () => {
           </View>
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 

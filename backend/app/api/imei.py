@@ -60,22 +60,30 @@ def create_imei(data: CreateImei, db: Session = Depends(get_db)):
         
     return imei
 
-@router.get("/id/{id}")
+@router.get("/id/{id}", response_model=ReadImei)
 def get_imei_by_id(id:int, db: Session = Depends(get_db)):
     crud = ImeiCRUD(db)
     try:
         imei = crud.get_by_id(id)
+        if not imei:
+            raise HTTPException(status_code=404, detail="IMEI not found")
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         
     return imei
 
-@router.get("/code/{code}")
+@router.get("/code/{code}", response_model=ReadImei)
 def get_imei_by_code(code:str, db: Session = Depends(get_db)):
     crud = ImeiCRUD(db)
     try:
         imei = crud.get_by_code(code)
+        if not imei:
+            raise HTTPException(status_code=404, detail="IMEI not found")
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -87,11 +95,22 @@ def get_imei_by_code(code:str, db: Session = Depends(get_db)):
 def get_by_store_id(store_id: int, db: Session = Depends(get_db)):
     crud = ImeiCRUD(db)
     try:
-        imei = crud.all_by_store_id(
-            store_id=store_id
-        )
+        imeis = crud.all_by_store_id(store_id=store_id)
+        
+        # Return same format as /imeis endpoint
+        data = []
+        for i in imeis:
+            try:
+                # Pydantic v1
+                data.append(ReadImei.from_orm(i).dict())
+            except Exception:
+                # Pydantic v2
+                data.append(ReadImei.model_validate(i).model_dump())
+
+        return {
+            "data": data,
+            "total": len(data)
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        
-    return imei

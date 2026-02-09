@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from api import menu
 from core.middleware import DBSessionMiddleware
 from core.database import init_db
 from api import auth, user, client, vendor,  category_type, category, store, imei, permission, transaction, purchase
@@ -53,11 +54,15 @@ app.include_router(category_type.router)
 app.include_router(category.router)
 app.include_router(store.router)
 app.include_router(imei.router)
-app.include_router(permission.router)
+# app.include_router(permission.router)
 
-from api import payment, transfer
+from api import payment, transfer, stock_request, sale, customer
 app.include_router(transaction.router)
 app.include_router(purchase.router)
-app.include_router(payment.router)
+# app.include_router(payment.router)
 app.include_router(transfer.router)
+app.include_router(stock_request.router)
+app.include_router(sale.router)
+app.include_router(customer.router)
+app.include_router(menu.router)
 

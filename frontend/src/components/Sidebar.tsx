@@ -1,13 +1,25 @@
-import { useState } from "react";
-import { FaTags, FaLayerGroup, FaBarcode } from "react-icons/fa";
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
+import api from "src/utils/api";
+
+interface SubMenuItem {
+  id: number;
+  name: string;
+  label: string;
+  icon: string | null;
+  path: string;
+  access: string;
+  sort_order: number;
+}
 
 interface MenuItem {
-  id: string;
+  id: number;
+  name: string;
   label: string;
-  icon: React.ReactNode;
+  icon: string | null;
   path: string;
-  children?: MenuItem[];
+  sort_order: number;
+  children: SubMenuItem[];
 }
 
 interface SidebarProps {
@@ -15,169 +27,71 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-const typeIcon = <FaTags className="tw-text-xl tw-text-primary" />;
-const categoryIcon = <FaLayerGroup className="tw-text-xl tw-text-secondary" />;
-const barcodeIcon = <FaBarcode className="tw-text-xl tw-text-accent" />;
-
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [expandedItems, setExpandedItems] = useState<number[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
-  const menuItems: MenuItem[] = [
-    { id: "dashboard", label: "Dashboard", icon: "📊", path: "/dashboard" },
-    {
-      id: "billing",
-      label: "Billing",
-      icon: "💳",
-      path: "/billing",
-      children: [
-        {
-          id: "sales",
-          label: "Sales",
-          icon: "🧾",
-          path: "/billing/sales",
-        },
+  useEffect(() => {
+    fetchUserMenu();
+  }, []);
 
-        {
-          id: "returns",
-          label: "Returns",
-          icon: "↩️",
-          path: "/billing/returns",
-        },
-        {
-          id: "creditors",
-          label: "Creditors",
-          icon: "👥",
-          path: "/billing/creditors",
-        },
-        {
-          id: "debtors",
-          label: "Debtors",
-          icon: "🧾",
-          path: "/billing/debtors",
-        },
-      ],
-    },
-    {
-      id: "users",
-      label: "Users",
-      icon: "👥",
-      path: "/users",
-      children: [
-        {
-          id: "customers",
-          label: "Customers",
-          icon: "🛒",
-          path: "/users/customers",
-        },
-        {
-          id: "user_list",
-          label: "User List",
-          icon: "📃",
-          path: "/users/list",
-        },
-        {
-          id: "user_roles",
-          label: "User Roles",
-          icon: "🔐",
-          path: "/users/roles",
-        },
-        {
-          id: "user_activity",
-          label: "User Activity",
-          icon: "🕵️",
-          path: "/users/activity",
-        },
-        {
-          id: "user_permissions",
-          label: "User Permissions",
-          icon: "✅",
-          path: "/users/permissions",
-        },
-      ],
-    },
-    {
-      id: "inventory",
-      label: "Inventory",
-      icon: "📦",
-      path: "/inventory",
-      children: [
-        {
-          id: "stock-taking",
-          label: "Stock Taking",
-          icon: barcodeIcon,
-          path: "/inventory/stock-taking",
-        },
+  // Auto-expand the menu that contains the current path
+  useEffect(() => {
+    const currentMenu = menuItems.find((m) =>
+      m.children?.some((c) => location.pathname.startsWith(c.path)),
+    );
+    if (currentMenu && !expandedItems.includes(currentMenu.id)) {
+      setExpandedItems((prev) => [...prev, currentMenu.id]);
+    }
+  }, [location.pathname, menuItems]);
 
-        {
-          id: "stock",
-          label: "Stocks",
-          icon: "📋",
-          path: "/inventory/stock",
-        },
+  const fetchUserMenu = async () => {
+    try {
+      const user = localStorage.getItem("user");
+      if (!user) return;
+      const { id: userId } = JSON.parse(user);
 
-        {
-          id: "transfers",
-          label: "Stock Transfers",
-          icon: "🔄",
-          path: "/inventory/transfers",
-        },
-      ],
-    },
-    {
-      id: "purchases",
-      label: "Purchases",
-      icon: "🛒",
-      path: "/purchases",
-      children: [
-        {
-          id: "list",
-          label: "Purchase Orders",
-          icon: "📝",
-          path: "/purchases/list",
-        },
-      ],
-    },
-    {
-      id: "settings",
-      label: "Settings",
-      icon: "⚙️",
-      path: "/settings",
-      children: [
-        {
-          id: "types",
-          label: "Types",
-          icon: typeIcon,
-          path: "/settings/types",
-        },
-        {
-          id: "categories",
-          label: "Categories",
-          icon: categoryIcon,
-          path: "/settings/categories",
-        },
-        {
-          id: "companies",
-          label: "Companies",
-          icon: "🏢",
-          path: "/settings/companies",
-        },
-        { id: "stores", label: "Stores", icon: "🏬", path: "/settings/stores" },
-        {
-          id: "vendors",
-          label: "Vendors",
-          icon: "🚚",
-          path: "/settings/vendors",
-        },
-        { id: "sms", label: "SMS Settings", icon: "📱", path: "/settings/sms" },
-      ],
-    },
-  ];
+      // Try loading user-specific menu first
+      const res = await api.get(`/menus/permissions/user/${userId}/menu`);
 
-  const toggleExpand = (id: string) => {
+      if (res.data && res.data.length > 0) {
+        setMenuItems(res.data);
+      } else {
+        // Fallback: load all menus (for admin or when no permissions assigned yet)
+        const allMenus = await api.get("/menus");
+        const formatted = allMenus.data.map((m: any) => ({
+          ...m,
+          children: m.submenus || [],
+        }));
+        setMenuItems(formatted);
+      }
+    } catch (e) {
+      console.error("Failed to load menu:", e);
+      // Fallback: load all menus
+      try {
+        const allMenus = await api.get("/menus");
+        const formatted = allMenus.data.map((m: any) => ({
+          ...m,
+          children: m.submenus || [],
+        }));
+        setMenuItems(formatted);
+      } catch {
+        setMenuItems([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleExpand = (id: number) => {
     setExpandedItems((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
   };
+
+  const isActive = (path: string) => location.pathname === path;
 
   return (
     <>
@@ -199,48 +113,83 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         `}
       >
         <div className="tw-p-6 tw-border-b tw-border-gray-200">
-          <h2 className="tw-text-2xl tw-font-bold tw-text-primary">
-            Admin Panel
-          </h2>
+          <h2 className="tw-text-2xl tw-font-bold tw-text-primary">X-WING</h2>
         </div>
 
         <nav className="tw-p-4 tw-overflow-y-auto tw-h-[calc(100vh-5rem)]">
-          {menuItems.map((item) => (
-            <div key={item.id} className="tw-mb-2">
-              <button
-                onClick={() => item.children && toggleExpand(item.id)}
-                className="tw-w-full tw-flex tw-items-center tw-justify-between tw-px-4 tw-py-3 tw-text-secondary hover:tw-bg-gray-50 tw-rounded-lg tw-transition-colors"
-              >
-                <div className="tw-flex tw-items-center tw-gap-3">
-                  <span className="tw-text-xl">{item.icon}</span>
-                  <span className="tw-font-medium">{item.label}</span>
-                </div>
-                {item.children && (
-                  <span
-                    className={`tw-transition-transform ${expandedItems.includes(item.id) ? "tw-rotate-90" : ""}`}
-                  >
-                    ›
-                  </span>
-                )}
-              </button>
-
-              {/* Nested Items */}
-              {item.children && expandedItems.includes(item.id) && (
-                <div className="tw-ml-4 tw-mt-2 tw-space-y-1">
-                  {item.children.map((child) => (
-                    <Link
-                      to={child.path}
-                      key={child.id}
-                      className="tw-w-full tw-flex tw-items-center tw-gap-3 tw-px-4 tw-py-2 tw-text-secondary-light hover:tw-bg-gray-50 tw-rounded-lg tw-transition-colors tw-text-sm"
-                    >
-                      <span>{child.icon}</span>
-                      <span>{child.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
+          {loading ? (
+            <div className="tw-flex tw-items-center tw-justify-center tw-py-8">
+              <div className="tw-animate-spin tw-rounded-full tw-h-6 tw-w-6 tw-border-b-2 tw-border-primary"></div>
             </div>
-          ))}
+          ) : menuItems.length === 0 ? (
+            <div className="tw-text-center tw-py-8 tw-text-gray-400 tw-text-sm">
+              No menu items available
+            </div>
+          ) : (
+            menuItems.map((item) => (
+              <div key={item.id} className="tw-mb-1">
+                {item.children && item.children.length > 0 ? (
+                  /* ── Parent with children ─────────────────── */
+                  <>
+                    <button
+                      onClick={() => toggleExpand(item.id)}
+                      className={`tw-w-full tw-flex tw-items-center tw-justify-between tw-px-4 tw-py-3 tw-rounded-lg tw-transition-colors ${
+                        expandedItems.includes(item.id)
+                          ? "tw-bg-gray-100 tw-text-primary"
+                          : "tw-text-secondary hover:tw-bg-gray-50"
+                      }`}
+                    >
+                      <div className="tw-flex tw-items-center tw-gap-3">
+                        <span className="tw-text-xl">{item.icon || "📄"}</span>
+                        <span className="tw-font-medium">{item.label}</span>
+                      </div>
+                      <span
+                        className={`tw-transition-transform tw-duration-200 ${
+                          expandedItems.includes(item.id) ? "tw-rotate-90" : ""
+                        }`}
+                      >
+                        ›
+                      </span>
+                    </button>
+
+                    {expandedItems.includes(item.id) && (
+                      <div className="tw-ml-4 tw-mt-1 tw-space-y-1 tw-border-l-2 tw-border-gray-100 tw-pl-2">
+                        {item.children.map((child) => (
+                          <Link
+                            to={child.path}
+                            key={child.id}
+                            onClick={onClose}
+                            className={`tw-w-full tw-flex tw-items-center tw-gap-3 tw-px-4 tw-py-2 tw-rounded-lg tw-transition-colors tw-text-sm ${
+                              isActive(child.path)
+                                ? "tw-bg-primary tw-bg-opacity-10 tw-text-primary tw-font-semibold"
+                                : "tw-text-secondary-light hover:tw-bg-gray-50"
+                            }`}
+                          >
+                            <span>{child.icon || "📄"}</span>
+                            <span>{child.label}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* ── Single item (no children) ────────────── */
+                  <Link
+                    to={item.path}
+                    onClick={onClose}
+                    className={`tw-w-full tw-flex tw-items-center tw-gap-3 tw-px-4 tw-py-3 tw-rounded-lg tw-transition-colors ${
+                      isActive(item.path)
+                        ? "tw-bg-primary tw-bg-opacity-10 tw-text-primary tw-font-semibold"
+                        : "tw-text-secondary hover:tw-bg-gray-50"
+                    }`}
+                  >
+                    <span className="tw-text-xl">{item.icon || "📄"}</span>
+                    <span className="tw-font-medium">{item.label}</span>
+                  </Link>
+                )}
+              </div>
+            ))
+          )}
         </nav>
       </aside>
     </>
